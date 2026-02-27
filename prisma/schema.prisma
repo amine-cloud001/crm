@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Order {
+  id                 Int      @id @default(autoincrement())
+  shopifyOrderId     String   @unique
+  shopifyOrderNumber String
+  customerName       String
+  customerPhone      String
+  customerAddress    String
+  customerCity       String   @default("")
+  products           String   // JSON string of products array
+  totalPrice         Float
+  currency           String   @default("MAD")
+  senditCode         String?
+  senditStatus       String?
+  senditFee          Float?
+  senditLabelUrl     String?
+  status             String   @default("new") // new, confirmed, shipped, delivered, canceled, rejected, returned
+  districtId         Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Setting {
+  id    Int    @id @default(autoincrement())
+  key   String @unique
+  value String
+}
