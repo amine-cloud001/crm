@@ -26,7 +26,6 @@ export async function POST(
       );
     }
 
-    // Get optional overrides from request body
     const body = await req.json().catch(() => ({}));
     const districtId = body.district_id || order.districtId;
 
@@ -37,30 +36,48 @@ export async function POST(
       );
     }
 
-    const products = JSON.parse(order.products);
+    // Use edited fields from body, fall back to stored order data
+    const customerName = body.customerName || order.customerName;
+    const customerPhone = body.customerPhone || order.customerPhone;
+    const customerAddress = body.customerAddress || order.customerAddress;
+    const totalPrice = body.totalPrice != null ? parseFloat(body.totalPrice) : order.totalPrice;
+
+    // Build product names joined with " + "
+    const products = JSON.parse(body.products || order.products);
     const productNames = products
-      .map((p: { title: string; quantity: number }) => `${p.title} x${p.quantity}`)
-      .join(", ");
+      .map((p: { title: string; variant?: string; quantity: number }) => {
+        let name = p.title;
+        if (p.variant) name += ` (${p.variant})`;
+        if (p.quantity > 1) name += ` x${p.quantity}`;
+        return name;
+      })
+      .join(" + ");
 
     // Create parcel in Sendit
     const parcel = await createParcel({
       district_id: districtId,
-      name: order.customerName,
-      phone: order.customerPhone,
-      address: order.customerAddress,
-      amount: order.totalPrice,
+      name: customerName,
+      phone: customerPhone,
+      address: customerAddress,
+      amount: totalPrice,
       reference: order.shopifyOrderNumber,
-      comment: productNames,
-      allow_open: body.allow_open ?? 1,
-      allow_try: body.allow_try ?? 1,
+      comment: order.shopifyOrderNumber,
+      products: productNames,
+      allow_open: 1,
+      allow_try: 1,
       products_from_stock: 0,
       option_exchange: 0,
     });
 
-    // Update order with Sendit info
+    // Save edited fields + Sendit info
     const updatedOrder = await prisma.order.update({
       where: { id: parseInt(id) },
       data: {
+        customerName,
+        customerPhone,
+        customerAddress,
+        totalPrice,
+        products: body.products || order.products,
         senditCode: parcel.code,
         senditStatus: parcel.status,
         senditFee: parcel.fee,
