@@ -119,6 +119,12 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
       const params = new URLSearchParams({ page: String(page) });
       if (search) params.set("search", search);
       const res = await fetch(`/api/districts?${params}`);
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        setDistrictError("Erreur serveur - redemarrez l'application");
+        setLoadingDistricts(false);
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         if (append) {
@@ -131,8 +137,8 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
       } else {
         setDistrictError(data.error || "Erreur de chargement");
       }
-    } catch {
-      setDistrictError("Impossible de charger les villes");
+    } catch (err) {
+      setDistrictError("Impossible de charger les villes: " + String(err));
     }
     setLoadingDistricts(false);
   }, []);
