@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 interface Order {
   id: number;
@@ -68,10 +68,12 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
-  const [districts, setDistricts] = useState<District[]>([]);
-  const [selectedDistrict, setSelectedDistrict] = useState<number | null>(null);
+  const [allDistricts, setAllDistricts] = useState<District[]>([]);
+  const [loadingDistricts, setLoadingDistricts] = useState(false);
+  const [selectedDistrict, setSelectedDistrict] = useState<District | null>(null);
   const [districtSearch, setDistrictSearch] = useState("");
-  const [showDistrictDropdown, setShowDistrictDropdown] = useState(false);
+  const [showDistrictPicker, setShowDistrictPicker] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Editable fields
   const [editName, setEditName] = useState("");
@@ -91,7 +93,6 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
       if (data.success) {
         const o = data.data as Order;
         setOrder(o);
-        setSelectedDistrict(o.districtId);
         // Initialize editable fields
         setEditName(o.customerName);
         setEditPhone(o.customerPhone);
@@ -105,6 +106,22 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
     }
     setLoading(false);
   }, [orderId]);
+
+  // Load all districts once
+  const fetchAllDistricts = useCallback(async () => {
+    if (allDistricts.length > 0) return;
+    setLoadingDistricts(true);
+    try {
+      const res = await fetch("/api/districts/all");
+      const data = await res.json();
+      if (data.success) {
+        setAllDistricts(data.data);
+      }
+    } catch {
+      // ignore
+    }
+    setLoadingDistricts(false);
+  }, [allDistricts.length]);
 
   useEffect(() => {
     fetchOrder();
@@ -123,23 +140,18 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
     recalcTotal(updated);
   };
 
-  const searchDistricts = async (query: string) => {
-    setDistrictSearch(query);
-    if (query.length < 2) {
-      setDistricts([]);
-      setShowDistrictDropdown(false);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/districts?search=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      if (data.success) {
-        setDistricts(data.data);
-        setShowDistrictDropdown(true);
-      }
-    } catch {
-      // ignore
-    }
+  // Filter districts locally
+  const filteredDistricts = allDistricts.filter((d) => {
+    if (!districtSearch) return true;
+    const q = districtSearch.toLowerCase();
+    return d.name.toLowerCase().includes(q) || d.ville.toLowerCase().includes(q);
+  });
+
+  const openDistrictPicker = () => {
+    fetchAllDistricts();
+    setDistrictSearch("");
+    setShowDistrictPicker(true);
+    setTimeout(() => searchInputRef.current?.focus(), 100);
   };
 
   const handleConfirm = async () => {
@@ -158,7 +170,7 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          district_id: selectedDistrict,
+          district_id: selectedDistrict.id,
           customerName: editName,
           customerPhone: editPhone,
           customerAddress: editAddress,
@@ -363,42 +375,95 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
                 <h3 className="font-semibold text-yellow-800 text-sm uppercase tracking-wider">
                   Ville de livraison Sendit (Obligatoire)
                 </h3>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={districtSearch}
-                    onChange={(e) => searchDistricts(e.target.value)}
-                    onFocus={() => districts.length > 0 && setShowDistrictDropdown(true)}
-                    placeholder="Rechercher une ville... (ex: Casablanca)"
-                    className="w-full px-4 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 text-gray-900"
-                  />
-                  {showDistrictDropdown && districts.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto z-10">
-                      {districts.map((d) => (
+                <button
+                  type="button"
+                  onClick={openDistrictPicker}
+                  className={`w-full text-left px-4 py-2.5 border rounded-lg flex items-center justify-between transition-colors ${
+                    selectedDistrict
+                      ? "border-green-300 bg-green-50"
+                      : "border-yellow-300 bg-white hover:border-yellow-400"
+                  }`}
+                >
+                  {selectedDistrict ? (
+                    <div>
+                      <span className="font-medium text-gray-900">{selectedDistrict.name}</span>
+                      <span className="text-gray-400 ml-2 text-sm">{selectedDistrict.price} DH - {selectedDistrict.delais}</span>
+                    </div>
+                  ) : (
+                    <span className="text-gray-400">Cliquer pour choisir une ville...</span>
+                  )}
+                  <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            {/* District Picker Overlay */}
+            {showDistrictPicker && (
+              <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+                  {/* Picker Header */}
+                  <div className="p-4 border-b border-gray-100">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-bold text-gray-900">Choisir la ville</h3>
+                      <button
+                        onClick={() => setShowDistrictPicker(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    {/* Search bar */}
+                    <div className="relative">
+                      <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        value={districtSearch}
+                        onChange={(e) => setDistrictSearch(e.target.value)}
+                        placeholder="Rechercher une ville..."
+                        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 text-gray-900 text-sm"
+                      />
+                    </div>
+                  </div>
+                  {/* District List */}
+                  <div className="overflow-y-auto flex-1">
+                    {loadingDistricts ? (
+                      <div className="p-8 text-center text-gray-400 text-sm">Chargement des villes...</div>
+                    ) : filteredDistricts.length === 0 ? (
+                      <div className="p-8 text-center text-gray-400 text-sm">Aucune ville trouvee</div>
+                    ) : (
+                      filteredDistricts.map((d) => (
                         <button
                           key={d.id}
                           onClick={() => {
-                            setSelectedDistrict(d.id);
-                            setDistrictSearch(`${d.name}`);
-                            setShowDistrictDropdown(false);
+                            setSelectedDistrict(d);
+                            setShowDistrictPicker(false);
                           }}
-                          className={`w-full text-left px-4 py-2 hover:bg-yellow-50 text-sm border-b border-gray-50 last:border-0 ${
-                            selectedDistrict === d.id ? "bg-yellow-100 font-medium" : ""
+                          className={`w-full text-left px-4 py-3 flex items-center justify-between border-b border-gray-50 hover:bg-yellow-50 transition-colors ${
+                            selectedDistrict?.id === d.id ? "bg-yellow-100" : ""
                           }`}
                         >
-                          <span className="font-medium text-gray-900">{d.name}</span>
-                          {d.ville !== d.name && <span className="text-gray-500"> ({d.ville})</span>}
-                          <span className="text-gray-400 ml-2">{d.price} DH - {d.delais}</span>
+                          <div>
+                            <div className="font-medium text-gray-900 text-sm">{d.name}</div>
+                            {d.ville !== d.name && (
+                              <div className="text-xs text-gray-400">{d.ville}</div>
+                            )}
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-sm font-medium text-gray-700">{d.price} DH</div>
+                            <div className="text-xs text-gray-400">{d.delais}</div>
+                          </div>
                         </button>
-                      ))}
-                    </div>
-                  )}
+                      ))
+                    )}
+                  </div>
                 </div>
-                {selectedDistrict && (
-                  <p className="text-sm text-green-700 font-medium">
-                    Ville selectionnee
-                  </p>
-                )}
               </div>
             )}
 
