@@ -203,6 +203,13 @@ export async function listDistricts(page = 1, search?: string): Promise<{
   if (search) params.set("querystring", search);
 
   const res = await senditFetch(`/districts?${params}`);
+
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(`Sendit returned non-JSON response (${res.status}): ${text.substring(0, 100)}`);
+  }
+
   const data = await res.json();
 
   if (!data.success) {
