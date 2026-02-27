@@ -68,12 +68,16 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
-  const [allDistricts, setAllDistricts] = useState<District[]>([]);
+  const [districts, setDistricts] = useState<District[]>([]);
   const [loadingDistricts, setLoadingDistricts] = useState(false);
+  const [districtError, setDistrictError] = useState("");
   const [selectedDistrict, setSelectedDistrict] = useState<District | null>(null);
   const [districtSearch, setDistrictSearch] = useState("");
   const [showDistrictPicker, setShowDistrictPicker] = useState(false);
+  const [districtPage, setDistrictPage] = useState(1);
+  const [districtLastPage, setDistrictLastPage] = useState(1);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Editable fields
   const [editName, setEditName] = useState("");
@@ -107,21 +111,31 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
     setLoading(false);
   }, [orderId]);
 
-  // Load all districts once
-  const fetchAllDistricts = useCallback(async () => {
-    if (allDistricts.length > 0) return;
+  // Fetch districts from Sendit API (paginated, with optional search)
+  const fetchDistricts = useCallback(async (search?: string, page = 1, append = false) => {
     setLoadingDistricts(true);
+    setDistrictError("");
     try {
-      const res = await fetch("/api/districts/all");
+      const params = new URLSearchParams({ page: String(page) });
+      if (search) params.set("search", search);
+      const res = await fetch(`/api/districts?${params}`);
       const data = await res.json();
       if (data.success) {
-        setAllDistricts(data.data);
+        if (append) {
+          setDistricts((prev) => [...prev, ...data.data]);
+        } else {
+          setDistricts(data.data);
+        }
+        setDistrictPage(data.currentPage);
+        setDistrictLastPage(data.lastPage);
+      } else {
+        setDistrictError(data.error || "Erreur de chargement");
       }
     } catch {
-      // ignore
+      setDistrictError("Impossible de charger les villes");
     }
     setLoadingDistricts(false);
-  }, [allDistricts.length]);
+  }, []);
 
   useEffect(() => {
     fetchOrder();
@@ -140,17 +154,25 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
     recalcTotal(updated);
   };
 
-  // Filter districts locally
-  const filteredDistricts = allDistricts.filter((d) => {
-    if (!districtSearch) return true;
-    const q = districtSearch.toLowerCase();
-    return d.name.toLowerCase().includes(q) || d.ville.toLowerCase().includes(q);
-  });
+  // Search with debounce
+  const handleDistrictSearch = (query: string) => {
+    setDistrictSearch(query);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchDistricts(query || undefined, 1);
+    }, 300);
+  };
+
+  const loadMoreDistricts = () => {
+    if (districtPage < districtLastPage && !loadingDistricts) {
+      fetchDistricts(districtSearch || undefined, districtPage + 1, true);
+    }
+  };
 
   const openDistrictPicker = () => {
-    fetchAllDistricts();
     setDistrictSearch("");
     setShowDistrictPicker(true);
+    fetchDistricts(undefined, 1);
     setTimeout(() => searchInputRef.current?.focus(), 100);
   };
 
@@ -425,7 +447,7 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
                         ref={searchInputRef}
                         type="text"
                         value={districtSearch}
-                        onChange={(e) => setDistrictSearch(e.target.value)}
+                        onChange={(e) => handleDistrictSearch(e.target.value)}
                         placeholder="Rechercher une ville..."
                         className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 text-gray-900 text-sm"
                       />
@@ -433,34 +455,58 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
                   </div>
                   {/* District List */}
                   <div className="overflow-y-auto flex-1">
-                    {loadingDistricts ? (
+                    {districtError ? (
+                      <div className="p-8 text-center">
+                        <div className="text-red-500 text-sm mb-2">{districtError}</div>
+                        <button
+                          onClick={() => fetchDistricts(districtSearch || undefined, 1)}
+                          className="text-sm text-blue-600 hover:underline"
+                        >
+                          Reessayer
+                        </button>
+                      </div>
+                    ) : districts.length === 0 && loadingDistricts ? (
                       <div className="p-8 text-center text-gray-400 text-sm">Chargement des villes...</div>
-                    ) : filteredDistricts.length === 0 ? (
+                    ) : districts.length === 0 ? (
                       <div className="p-8 text-center text-gray-400 text-sm">Aucune ville trouvee</div>
                     ) : (
-                      filteredDistricts.map((d) => (
-                        <button
-                          key={d.id}
-                          onClick={() => {
-                            setSelectedDistrict(d);
-                            setShowDistrictPicker(false);
-                          }}
-                          className={`w-full text-left px-4 py-3 flex items-center justify-between border-b border-gray-50 hover:bg-yellow-50 transition-colors ${
-                            selectedDistrict?.id === d.id ? "bg-yellow-100" : ""
-                          }`}
-                        >
-                          <div>
-                            <div className="font-medium text-gray-900 text-sm">{d.name}</div>
-                            {d.ville !== d.name && (
-                              <div className="text-xs text-gray-400">{d.ville}</div>
-                            )}
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <div className="text-sm font-medium text-gray-700">{d.price} DH</div>
-                            <div className="text-xs text-gray-400">{d.delais}</div>
-                          </div>
-                        </button>
-                      ))
+                      <>
+                        {districts.map((d) => (
+                          <button
+                            key={d.id}
+                            onClick={() => {
+                              setSelectedDistrict(d);
+                              setShowDistrictPicker(false);
+                            }}
+                            className={`w-full text-left px-4 py-3 flex items-center justify-between border-b border-gray-50 hover:bg-yellow-50 transition-colors ${
+                              selectedDistrict?.id === d.id ? "bg-yellow-100" : ""
+                            }`}
+                          >
+                            <div>
+                              <div className="font-medium text-gray-900 text-sm">{d.name}</div>
+                              {d.ville !== d.name && (
+                                <div className="text-xs text-gray-400">{d.ville}</div>
+                              )}
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <div className="text-sm font-medium text-gray-700">{d.price} DH</div>
+                              <div className="text-xs text-gray-400">{d.delais}</div>
+                            </div>
+                          </button>
+                        ))}
+                        {districtPage < districtLastPage && (
+                          <button
+                            onClick={loadMoreDistricts}
+                            disabled={loadingDistricts}
+                            className="w-full py-3 text-center text-sm text-blue-600 hover:bg-blue-50 font-medium"
+                          >
+                            {loadingDistricts ? "Chargement..." : "Charger plus de villes..."}
+                          </button>
+                        )}
+                        {loadingDistricts && districts.length > 0 && (
+                          <div className="py-2 text-center text-gray-400 text-xs">Chargement...</div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
