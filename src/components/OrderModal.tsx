@@ -118,7 +118,7 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
     try {
       const params = new URLSearchParams({ page: String(page) });
       if (search) params.set("search", search);
-      const res = await fetch(`/api/districts?${params}`);
+      const res = await fetch(`/api/sendit-cities?${params}`);
       const contentType = res.headers.get("content-type") || "";
       if (!contentType.includes("application/json")) {
         setDistrictError("Erreur serveur - redemarrez l'application");
