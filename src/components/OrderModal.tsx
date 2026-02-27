@@ -207,16 +207,30 @@ export default function OrderModal({ orderId, onClose, onOrderUpdated }: OrderMo
             <div className="bg-gray-50 rounded-xl p-4">
               <h3 className="font-semibold text-gray-700 text-sm uppercase tracking-wider mb-3">Products</h3>
               <div className="space-y-2">
-                {products.map((p: { title: string; quantity: number; price: string; sku: string; variant: string }, i: number) => (
-                  <div key={i} className="flex justify-between items-center text-sm bg-white rounded-lg p-3">
-                    <div>
-                      <span className="font-medium">{p.title}</span>
-                      {p.variant && <span className="text-gray-500 ml-2">({p.variant})</span>}
-                      {p.sku && <span className="text-gray-400 ml-2 font-mono text-xs">{p.sku}</span>}
+                {products.map((p: { title: string; quantity: number; price: string; sku: string; variant: string; image?: string | null }, i: number) => (
+                  <div key={i} className="flex items-center gap-3 text-sm bg-white rounded-lg p-3">
+                    {/* Product Image */}
+                    <div className="w-14 h-14 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100 border border-gray-200">
+                      {p.image ? (
+                        <img src={p.image} alt={p.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-right">
-                      <span className="text-gray-500">x{p.quantity}</span>
-                      <span className="ml-3 font-medium">{p.price} {order.currency}</span>
+                    {/* Product Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-900 truncate">{p.title}</div>
+                      {p.variant && <div className="text-gray-500 text-xs">{p.variant}</div>}
+                      {p.sku && <div className="text-gray-400 font-mono text-xs mt-0.5">SKU: {p.sku}</div>}
+                    </div>
+                    {/* Price & Quantity */}
+                    <div className="text-right flex-shrink-0">
+                      <div className="font-medium">{p.price} {order.currency}</div>
+                      <div className="text-gray-500 text-xs">x{p.quantity}</div>
                     </div>
                   </div>
                 ))}

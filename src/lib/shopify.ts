@@ -79,12 +79,15 @@ export interface ShopifyOrder {
     sku: string;
     variant_title: string;
     product_id: number;
+    variant_id: number;
   }>;
 }
 
 export interface ShopifyProduct {
   id: number;
   title: string;
+  image?: { src: string } | null;
+  images?: Array<{ id: number; src: string; variant_ids: number[] }>;
   variants: Array<{
     id: number;
     title: string;
@@ -92,6 +95,7 @@ export interface ShopifyProduct {
     price: string;
     inventory_quantity: number;
     inventory_item_id: number;
+    image_id?: number | null;
   }>;
 }
 
@@ -130,8 +134,38 @@ export async function fetchProductCount(): Promise<number> {
   return data.count;
 }
 
+// Fetch products by IDs to get their images
+export async function fetchProductsByIds(ids: number[]): Promise<ShopifyProduct[]> {
+  if (ids.length === 0) return [];
+  const uniqueIds = [...new Set(ids)];
+  const data = await shopifyFetch(`/products.json?ids=${uniqueIds.join(",")}&fields=id,image,images,variants`);
+  return data.products;
+}
+
+// Build a map of product_id -> image URL from fetched products
+export function buildProductImageMap(products: ShopifyProduct[]): Map<string, string> {
+  const imageMap = new Map<string, string>();
+  for (const product of products) {
+    // Map variant_id -> image for variants with specific images
+    if (product.images) {
+      for (const img of product.images) {
+        if (img.variant_ids?.length) {
+          for (const vid of img.variant_ids) {
+            imageMap.set(`variant_${vid}`, img.src);
+          }
+        }
+      }
+    }
+    // Map product_id -> featured image as fallback
+    if (product.image?.src) {
+      imageMap.set(`product_${product.id}`, product.image.src);
+    }
+  }
+  return imageMap;
+}
+
 // Extract order data for our database
-export function extractOrderData(order: ShopifyOrder) {
+export function extractOrderData(order: ShopifyOrder, imageMap?: Map<string, string>) {
   const shippingAddr = order.shipping_address;
   const customer = order.customer;
 
@@ -154,13 +188,20 @@ export function extractOrderData(order: ShopifyOrder) {
 
   const customerCity = shippingAddr?.city || customer?.default_address?.city || "";
 
-  const products = order.line_items.map((item) => ({
-    title: item.title,
-    quantity: item.quantity,
-    price: item.price,
-    sku: item.sku,
-    variant: item.variant_title,
-  }));
+  const products = order.line_items.map((item) => {
+    // Try variant-specific image first, then fall back to product image
+    const image = imageMap?.get(`variant_${item.variant_id}`)
+      || imageMap?.get(`product_${item.product_id}`)
+      || null;
+    return {
+      title: item.title,
+      quantity: item.quantity,
+      price: item.price,
+      sku: item.sku,
+      variant: item.variant_title,
+      image,
+    };
+  });
 
   return {
     shopifyOrderId: String(order.id),
